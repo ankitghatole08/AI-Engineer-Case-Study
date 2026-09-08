@@ -1,0 +1,21 @@
+# Core UI
+streamlit>=1.36
+
+#orchestration
+langgraph>=1.2,<2
+
+# LLM / orchestration (students implement the backend with these)
+# langchain>=0.2
+# langchain-community>=0.2
+# ollama>=0.3
+
+# LLM + embeddings (Google Gemini via AI Studio)
+langchain-google-genai>=4.4,<5
+python-dotenv>=1.0
+
+# Vector store
+chromadb>=0.5
+
+# Data
+pandas>=2.0
+scikit-learn>=1.4
