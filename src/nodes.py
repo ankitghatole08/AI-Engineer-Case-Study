@@ -7,8 +7,8 @@ separate means it can be tested and evaluated without building a state dict.
 
     step 2  classify   -> knn_vote(), llm_classify()
     step 3  confidence -> score_confidence()
-    step 4  priority   -> knn_vote(cases, "priority")
-            route      -> (phase 8)
+    step 4  priority   -> determine_priority()
+            route      -> route_to_queue()
     step 5  notes      -> (phase 9)
 
 Step 1, retrieval, lives in src/retrieval.py.
@@ -163,10 +163,27 @@ def should_escalate(confidence: float, threshold: float) -> bool:
     """
     return confidence < threshold
 
+# --- step 4: priority and routing ---
+
+def determine_priority(cases: list[dict]) -> tuple[str, float]:
+    """Priority from the retrieved cases, as the brief specifies.
+
+    Reuses the same weighted vote as classification but reads the priority
+    column instead. These labels are human judgements made on real cases,
+    so inheriting them is more defensible than asking the model to guess.
+    """
+    return knn_vote(cases, "priority")
 
 
+def route_to_queue(category: str) -> str:
+    """Category maps 1:1 to queue across all 300 past cases, so routing is a
+    lookup rather than a model call — cheaper, instant, and it cannot invent
+    a team that does not exist.
+    """
+    return config.QUEUE_MAP.get(category, config.FALLBACK_QUEUE)
 
-# --- manual check: classify one inquiry and score its confidence ---
+
+# --- manual check: full triage logic on one inquiry, minus the notes ---
 
 if __name__ == "__main__":
     from src.retrieval import retrieve_past_cases
@@ -177,11 +194,13 @@ if __name__ == "__main__":
     knn_cat, agreement = knn_vote(cases, "category")
     llm_cat = llm_classify(demo)
     scored = score_confidence(knn_cat, llm_cat, agreement, cases)
+    priority, priority_agreement = determine_priority(cases)
 
     print(f"query:        {demo}")
     print(f"k-NN:         {knn_cat} (agreement {agreement})")
     print(f"LLM:          {llm_cat}")
-    print(f"agree:        {scored['methods_agree']}")
-    print(f"top match:    {scored['top_similarity']}")
+    print(f"category:     {llm_cat}")
     print(f"confidence:   {scored['confidence']}")
     print(f"escalate:     {should_escalate(scored['confidence'], config.DEFAULT_CONFIDENCE_THRESHOLD)}")
+    print(f"priority:     {priority} (agreement {priority_agreement})")
+    print(f"queue:        {route_to_queue(llm_cat)}")
