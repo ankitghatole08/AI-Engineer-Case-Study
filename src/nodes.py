@@ -6,7 +6,7 @@ in a thin node that reads and writes the shared state — keeping the logic
 separate means it can be tested and evaluated without building a state dict.
 
     step 2  classify   -> knn_vote(), llm_classify()
-    step 3  confidence -> (phase 7)
+    step 3  confidence -> score_confidence()
     step 4  priority   -> knn_vote(cases, "priority")
             route      -> (phase 8)
     step 5  notes      -> (phase 9)
@@ -120,7 +120,53 @@ Reply with exactly one category name from the list. No punctuation, no explanati
     return answer if answer in valid else "other"
 
 
-# --- manual check: run both classifiers on one inquiry ---
+# --- step 3: confidence and escalation ---
+
+def score_confidence(
+    knn_category: str,
+    llm_category: str,
+    knn_agreement: float,
+    cases: list[dict],
+) -> dict:
+    """Weighted blend of three signals, each already computed upstream.
+
+        0.5  the two classifiers agree      (independent evidence)
+        0.3  how united the k-NN vote was   (evidence strength)
+        0.2  similarity of the nearest case (is anything close at all)
+
+    Weights sum to 1.0, so the result is bounded 0.0-1.0. Agreement carries
+    the largest share because it is the only signal drawn from two
+    independent sources; the other two both derive from the same retrieval.
+
+    A consequence worth stating: a disagreement caps confidence at 0.5, so
+    the two classifiers splitting always escalates at the default threshold.
+    """
+    agree = 1.0 if knn_category == llm_category else 0.0
+    top_similarity = cases[0]["similarity"] if cases else 0.0
+
+    confidence = (
+        0.5 * agree
+        + 0.3 * knn_agreement
+        + 0.2 * top_similarity
+    )
+
+    return {
+        "confidence": round(confidence, 4),
+        "methods_agree": bool(agree),
+        "top_similarity": top_similarity,
+    }
+
+
+def should_escalate(confidence: float, threshold: float) -> bool:
+    """Escalation flags the result for review; it never withholds it.
+    The full triage output is still produced and routed.
+    """
+    return confidence < threshold
+
+
+
+
+# --- manual check: classify one inquiry and score its confidence ---
 
 if __name__ == "__main__":
     from src.retrieval import retrieve_past_cases
@@ -130,8 +176,12 @@ if __name__ == "__main__":
 
     knn_cat, agreement = knn_vote(cases, "category")
     llm_cat = llm_classify(demo)
+    scored = score_confidence(knn_cat, llm_cat, agreement, cases)
 
-    print(f"query:       {demo}")
-    print(f"k-NN:        {knn_cat} (agreement {agreement})")
-    print(f"LLM:         {llm_cat}")
-    print(f"agree:       {knn_cat == llm_cat}")
+    print(f"query:        {demo}")
+    print(f"k-NN:         {knn_cat} (agreement {agreement})")
+    print(f"LLM:          {llm_cat}")
+    print(f"agree:        {scored['methods_agree']}")
+    print(f"top match:    {scored['top_similarity']}")
+    print(f"confidence:   {scored['confidence']}")
+    print(f"escalate:     {should_escalate(scored['confidence'], config.DEFAULT_CONFIDENCE_THRESHOLD)}")
