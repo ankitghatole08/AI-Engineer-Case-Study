@@ -8,6 +8,13 @@ implement in `triage_inquiry` below / in `src/main.py`.
 
 import streamlit as st
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.main import triage_inquiry as run_triage
+
 # --- Configuration (sidebar controls) ------------------------------------
 
 st.set_page_config(page_title="Smart Inquiry Triage", page_icon="📨")
@@ -24,26 +31,9 @@ with st.sidebar:
 # --- Backend hook (IMPLEMENT ME) -----------------------------------------
 
 def triage_inquiry(query: str, top_k: int, confidence_threshold: float) -> dict:
-    """
-    TODO (candidate): implement the triage pipeline.
+    """Delegates to the LangGraph pipeline in src/main.py."""
+    return run_triage(query, top_k=top_k, confidence_threshold=confidence_threshold)
 
-    Run the classify -> retrieve Top-K -> determine priority -> route ->
-    resolution notes workflow (LangGraph) and return a dict shaped like:
-
-        {
-            "query": query,
-            "category": "<predicted category>",
-            "priority": "<low | medium | high>",
-            "routed_queue": "<target queue/team>",
-            "confidence": 0.0,                      # 0.0 - 1.0
-            "resolution_notes": "<1-2 line note>",
-            "retrieved_past_cases": ["<case 1>", "<case 2>", ...],
-            "escalated": False,                     # confidence < threshold
-        }
-
-    You can import and call your real implementation from `src/main.py`.
-    """
-    raise NotImplementedError("Implement the triage pipeline here.")
 
     # Example placeholder shape (remove once implemented):
     # return {
@@ -73,13 +63,26 @@ def render_result(result: dict) -> None:
     st.markdown("**retrieved past cases:**")
     if past_cases:
         for case in past_cases:
-            st.markdown(f"- {case}")
+            if isinstance(case, dict):
+                st.markdown(
+                f"- `{case['similarity']:.3f}` "
+                f"**[{case['category']} / {case['priority']}]** {case['text']}"
+            )
+            else:
+                st.markdown(f"- {case}")
     else:
         st.markdown("- _none_")
 
     if result.get("escalated"):
         st.warning("⚠️ Escalated to human review (confidence below threshold).")
 
+    # The two classifiers are independent, so showing both explains the score.
+    if "knn_category" in result:
+        agreement = "agree" if result.get("methods_agree") else "disagree"
+        st.caption(
+            f"k-NN vote: {result['knn_category']} · "
+            f"LLM: {result['llm_category']} · methods {agreement}"
+        )
 
 # --- Chat / session view --------------------------------------------------
 
@@ -108,8 +111,8 @@ if query:
                 result = triage_inquiry(query, top_k, confidence_threshold)
             render_result(result)
             st.session_state.history.append({"query": query, "result": result})
-        except NotImplementedError:
-            msg = "Backend not implemented yet — implement `triage_inquiry`."
+        except Exception as exc:
+            msg = f"Triage failed: {exc}"
             st.error(msg)
             st.session_state.history.append(
                 {"query": query, "result": None, "error": msg}
