@@ -126,6 +126,11 @@ def build_graph():
 
 if __name__ == "__main__":
     app = build_graph()
+
+    print("--- graph structure ---")
+    print(app.get_graph().draw_mermaid())
+    print()
+    
     result = app.invoke({
         "query": "My brakes are grinding and it feels unsafe to drive.",
         "top_k": 5,
