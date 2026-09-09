@@ -9,7 +9,7 @@ separate means it can be tested and evaluated without building a state dict.
     step 3  confidence -> score_confidence()
     step 4  priority   -> determine_priority()
             route      -> route_to_queue()
-    step 5  notes      -> (phase 9)
+    step 5  notes      -> generate_resolution_notes()
 
 Step 1, retrieval, lives in src/retrieval.py.
 """
@@ -182,8 +182,43 @@ def route_to_queue(category: str) -> str:
     """
     return config.QUEUE_MAP.get(category, config.FALLBACK_QUEUE)
 
+# --- step 5: resolution notes (the only generative step) ---
 
-# --- manual check: full triage logic on one inquiry, minus the notes ---
+def generate_resolution_notes(
+    query: str,
+    category: str,
+    priority: str,
+    cases: list[dict],
+) -> str:
+    """Short internal note for the agent who picks up the ticket.
+
+    The retrieved cases are included so the model is grounded in how similar
+    inquiries were actually handled rather than writing generic advice —
+    this is the retrieval-augmented part of the pipeline.
+
+    Priority is included because a safety-critical issue should read
+    differently from a routine request.
+    """
+    precedents = "\n".join(
+        f"- [{c['category']}/{c['priority']}] {c['text']}" for c in cases
+    )
+
+    prompt = f"""You are writing an internal triage note for a customer service agent.
+
+    Inquiry: "{query}"
+    Category: {category}
+    Priority: {priority}
+
+    Similar past cases:
+    {precedents}
+
+    Write 1-2 sentences telling the agent what to do next. Write for the agent,
+    not for the customer. Be specific and actionable. No greeting, no sign-off,
+    no bullet points."""
+
+    return as_text(_get_llm().invoke(prompt))
+
+# --- manual check: complete triage on one inquiry ---
 
 if __name__ == "__main__":
     from src.retrieval import retrieve_past_cases
@@ -194,13 +229,16 @@ if __name__ == "__main__":
     knn_cat, agreement = knn_vote(cases, "category")
     llm_cat = llm_classify(demo)
     scored = score_confidence(knn_cat, llm_cat, agreement, cases)
-    priority, priority_agreement = determine_priority(cases)
+    priority, _ = determine_priority(cases)
+    notes = generate_resolution_notes(demo, llm_cat, priority, cases)
 
     print(f"query:        {demo}")
-    print(f"k-NN:         {knn_cat} (agreement {agreement})")
-    print(f"LLM:          {llm_cat}")
     print(f"category:     {llm_cat}")
+    print(f"priority:     {priority}")
+    print(f"queue:        {route_to_queue(llm_cat)}")
     print(f"confidence:   {scored['confidence']}")
     print(f"escalate:     {should_escalate(scored['confidence'], config.DEFAULT_CONFIDENCE_THRESHOLD)}")
-    print(f"priority:     {priority} (agreement {priority_agreement})")
-    print(f"queue:        {route_to_queue(llm_cat)}")
+    print(f"notes:        {notes}")
+    print("\nretrieved cases:")
+    for c in cases:
+        print(f"  {c['similarity']:.3f}  [{c['category']}/{c['priority']}]  {c['text']}")
