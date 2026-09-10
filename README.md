@@ -68,6 +68,10 @@ changing two class names in `src/config.py` and `src/nodes.py`.
 
 Two halves. Ingestion runs once, offline. The pipeline runs per inquiry.
 
+![System architecture](presentation/architecture.png)
+
+---
+The triage pipeline itself, rendered from the compiled LangGraph:
 ````mermaid
 graph TD;
         __start__([start]):::first
